@@ -1,0 +1,39 @@
+# Core LangChain + LangGraph
+langchain>=0.2.0
+langchain-community>=0.2.0
+langchain-openai>=0.1.0
+langchain-huggingface>=0.0.3
+langchain-text-splitters>=0.2.0
+langgraph>=0.1.0
+
+# Embeddings + Vector Store
+sentence-transformers>=2.7.0
+faiss-cpu>=1.8.0
+
+# ML / DL (Transfer Learning)
+transformers>=4.40.0
+torch>=2.0.0                   # or torch-cpu for smaller install
+
+# NLP
+nltk>=3.8.1
+spacy>=3.7.0
+# After install run: python -m spacy download en_core_web_sm
+
+# Scraping
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+
+# Data
+pandas>=2.0.0
+openpyxl>=3.1.0               # for reading/writing .xlsx
+
+# API
+fastapi>=0.111.0
+uvicorn>=0.29.0
+pydantic>=2.0.0
+
+# UI
+streamlit>=1.35.0
+plotly>=5.0.0
+umap-learn>=0.5.6
+scikit-learn>=1.4.0
