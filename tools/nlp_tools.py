@@ -71,9 +71,7 @@ def _load_spacy():
         return spacy.load(model)
 
     except OSError:
-        import subprocess
-        subprocess.run([sys.executable, "-m", "spacy", "download", model], check=True)
-        return spacy.load(model)
+        return spacy.blank("en")
 
 @tool
 def tech_stack_extractor_tool(text:str) -> Dict[str, Any]:
