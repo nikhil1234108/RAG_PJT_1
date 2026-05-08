@@ -31,6 +31,24 @@ graph TD
     RAG -->|Route: both| Analyse
     RAG -->|Route: rag| Synthesis[Synthesis Node]
     
+    subgraph NLP_Tools[NLP Tools]
+        Tech[Tech Stack Extractor]
+        Summary[Project Summary Tool]
+        Complexity[Complexity Classifier]
+        Topic[Topic Classifier]
+        Readability[Readability Tool]
+    end
+    
+    Analyse -.-> Tech
+    Analyse -.-> Summary
+    Analyse -.-> Complexity
+    Analyse -.-> Topic
+    Analyse -.-> Readability
+    
+    Compare -.-> Tech
+    Compare -.-> Complexity
+    Compare -.-> Topic
+    
     Analyse --> Synthesis
     Compare --> Synthesis
     
