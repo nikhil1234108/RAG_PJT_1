@@ -10,7 +10,6 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from langgraph.graph import END, StateGraph
-from langgraph.checkpoint.postgres import PostgresSaver
 
 
 class AgentState(BaseModel):
@@ -84,11 +83,11 @@ def get_checkpointer():
             print(f"Postgres connection failed: {e}. Falling back to MemorySaver.")
     
     if use_postgres:
+        from langgraph.checkpoint.postgres import PostgresSaver
         with PostgresSaver.from_conn_string(db_url) as checkpointer:
             yield checkpointer
     else:
-        from langgraph.checkpoint.memory import MemorySaver
-        yield MemorySaver()
+        raise ConnectionError("PostgreSQL connection required but DATABASE_URL not configured or connection failed.")
 
 
 def _build_cluster_rag_chain(vectorstore, cluster_ids: List[str]):
@@ -96,7 +95,7 @@ def _build_cluster_rag_chain(vectorstore, cluster_ids: List[str]):
     from langchain_classic.chains import RetrievalQA
     from vectorstore.vector_store import get_cluster_filtered_retriever
 
-    retriever = get_cluster_filtered_retriever(vectorstore, cluster_ids, k=5)
+    retriever = get_cluster_filtered_retriever(vectorstore, cluster_ids, top_k=5, faiss_store_k=20)
     return RetrievalQA.from_chain_type(
         llm=get_llm(),
         chain_type="stuff",
@@ -110,7 +109,7 @@ def _retrieve_cluster_docs(vectorstore, query: str, cluster_ids: Optional[List[s
     if cluster_ids:
         from vectorstore.vector_store import get_cluster_filtered_retriever
 
-        retriever = get_cluster_filtered_retriever(vectorstore, cluster_ids, k=k)
+        retriever = get_cluster_filtered_retriever(vectorstore, cluster_ids, top_k=k, faiss_store_k=20)
         docs = retriever.invoke(query)
         return docs if isinstance(docs, list) else [docs]
     return vectorstore.similarity_search(query, k=k)
@@ -170,7 +169,6 @@ def router_node(state: AgentState) -> AgentState:
     print(f"[Router] '{state.user_query}' -> {route}")
     return state.model_copy(update={"route": route})
 
-
 def cluster_router_node(state: AgentState) -> AgentState:
     from vectorstore.clustering import load_cluster_results
     from vectorstore.vector_store import get_embeddings
@@ -195,27 +193,36 @@ def cluster_router_node(state: AgentState) -> AgentState:
     return state.model_copy(update={"target_cluster_ids": cluster_url_ids})
 
 
-def build_rag_node(rag_chain, vectorstore):
-    cluster_chain_cache: Dict[tuple[str, ...], Any] = {}
-
+def build_rag_node(vectorstore):
     def rag_node(state: AgentState) -> AgentState:
+        """
+        cluster_ids MUST be set by cluster_router_node.
+        No fallback — if cluster_ids empty something went wrong upstream.
+        """
         from chains.rag_chain import query_rag
 
-        chain = rag_chain
-        if state.target_cluster_ids:
-            cache_key = tuple(sorted(state.target_cluster_ids))
-            if cache_key not in cluster_chain_cache:
-                cluster_chain_cache[cache_key] = _build_cluster_rag_chain(vectorstore, state.target_cluster_ids)
-            chain = cluster_chain_cache[cache_key]
+        cluster_ids = state.target_cluster_ids
 
-        result = query_rag(chain, state.user_query)
-        return state.model_copy(
-            update={
-                "rag_answer": result["result"],
-                "rag_sources": result["sources"],
-            }
+        if not cluster_ids:
+            print("[RAG] ERROR: cluster_ids empty — cluster_router did not run")
+            return state.model_copy(update={
+                "rag_answer":  "Could not determine relevant cluster. "
+                               "Please rephrase your question.",
+                "rag_sources": [],
+            })
+
+        print(f"[RAG] Searching cluster: {cluster_ids}")
+
+        result = query_rag(
+            vectorstore = vectorstore,
+            question    = state.user_query,
+            cluster_ids = cluster_ids,
         )
 
+        return state.model_copy(update={
+            "rag_answer":  result["answer"],
+            "rag_sources": result["sources"],
+        })
     return rag_node
 
 
@@ -370,12 +377,12 @@ def after_rag(state: AgentState) -> str:
     return "analyse" if state.route == "both" else "synthesis"
 
 
-def build_agent_graph(rag_chain, vectorstore, checkpointer=None):
+def build_agent_graph(vectorstore, checkpointer=None):
     graph = StateGraph(AgentState)
 
     graph.add_node("router", router_node)
     graph.add_node("cluster_router", cluster_router_node)
-    graph.add_node("rag", build_rag_node(rag_chain, vectorstore))
+    graph.add_node("rag", build_rag_node(vectorstore))
     graph.add_node("analyse", build_analyse_node(vectorstore))
     graph.add_node("compare", build_compare_node(vectorstore))
     graph.add_node("synthesis", synthesis_node)
@@ -423,16 +430,12 @@ def run_agent(graph, query: str, thread_id: str = "default") -> str:
 
 
 if __name__ == "__main__":
-    from chains.rag_chain import build_rag_chain
     from ingest.chunker import chunk_docs, doc_loader
     from vectorstore.vector_store import load_vectorstore
 
-    documents = doc_loader()
-    chunks = chunk_docs(documents, verbose=False)
     vectorstore = load_vectorstore(backend="faiss")
-    rag_chain = build_rag_chain(vectorstore, chunks)
     with get_checkpointer() as checkpointer:
         if hasattr(checkpointer, "setup"):
             checkpointer.setup()
-        graph = build_agent_graph(rag_chain, vectorstore, checkpointer)
-        print(run_agent(graph, "i want to do project on computer vision"))
+        graph = build_agent_graph(vectorstore, checkpointer)
+        print(run_agent(graph, "i want to do cloud based projects , tell me how many projects are done and give count with names and id"))

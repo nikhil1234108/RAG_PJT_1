@@ -63,7 +63,7 @@ def get_postgres_connection_string() -> str:
 def get_collection_name() -> str:
     return os.getenv("PGVECTOR_COLLECTION_NAME", DEFAULT_COLLECTION_NAME)
 
-def build_vector_store(chunks:List[Document], force_build:bool=False, backend: Optional[str]=None):
+def build_vector_store(chunks:List[Document], force_build:bool=True, backend: Optional[str]=None):
     selected_backend = get_vector_backend(backend)
     if selected_backend in {"postgres", "pgvector"}:
         return build_postgres_vector_store(chunks, force_build=force_build)
@@ -153,17 +153,38 @@ def load_vectorstore(backend: Optional[str]=None):
         allow_dangerous_deserialization=True,
     )
 
-def get_cluster_filtered_retriever(vectorstore, cluster_url_ids: list, k: int = 5):
+def get_cluster_filtered_retriever(vectorstore, cluster_url_ids: list, top_k: int = 5,faiss_store_k: int = 20):
 
     from langchain_core.documents import Document
     from langchain_core.retrievers import BaseRetriever
 
     from typing import List
     from pydantic import Field
+    from vectorstore.reranker import rerank
 
     class ClusterFilteredRetriever(BaseRetriever):
+        """
+    Two-stage retrieval with reranking:
+
+    Stage 1 — cluster_router_node:
+      article centroids → nearest cluster → article IDs
+
+    Stage 2 — this function:
+      reconstruct cluster chunk vectors → build temp index
+      search temp index (k=20, wide net)
+
+    Stage 3 — reranker:
+      cross-encoder / Cohere scores all 20 against query
+      returns top k=5 most relevant
+
+    Why k=20 then rerank to 5:
+      FAISS retrieves 20 candidates — fast, approximate
+      Reranker picks best 5 — slow, precise
+      LLM gets 5 high-quality chunks — accurate answer
+    """
         cluster_ids: list = Field(default_factory=list)
         top_k: int        = Field(default=5)
+        faiss_k: int = Field(default=20)
 
         def _get_relevant_documents(self, query: str) -> List[Document]:
             cluster_chunks = []
@@ -190,15 +211,22 @@ def get_cluster_filtered_retriever(vectorstore, cluster_url_ids: list, k: int = 
             temp_index = faiss.IndexFlatIP(dim)
             temp_index.add(vectors)
 
-            distances, indices = temp_index.search(query_vector, k=self.top_k)
+            distances, indices = temp_index.search(query_vector, k=self.faiss_k)
             results = []
             for idx in indices[0]:
                 if idx != -1:
                     results.append(cluster_chunks[idx])
+            print(f"[ClusterRetriever] FAISS retrieved {len(results)} candidates")
 
-            return results
+            reranked_results = rerank(query, results)
+            print(f"[ClusterRetriever] Reranker returned {len(reranked_results)} documents")
 
-    return ClusterFilteredRetriever(cluster_ids=cluster_url_ids, top_k=k)
+            return reranked_results
+
+        async def _aget_relevant_documents(self, query: str) -> List[Document]:
+            return self._get_relevant_documents(query)
+
+    return ClusterFilteredRetriever(cluster_ids=cluster_url_ids, top_k=top_k, faiss_k=faiss_store_k)
 
 
 if __name__ == "__main__":

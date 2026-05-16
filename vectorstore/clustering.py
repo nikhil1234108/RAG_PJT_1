@@ -151,6 +151,7 @@ def build_clusters(article_dir: str = ARTICLES_DIR):
           f"{len(urlids)} articles.")
     return kmeans_results, umap_results
 
+
 if __name__ == "__main__":
     km, umap = build_clusters()
 
