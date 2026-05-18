@@ -1,48 +1,63 @@
-# Core LangChain + LangGraph
+# ── Core LangChain + LangGraph ──────────────────────────────────────────────
 langchain>=0.2.0
 langchain-community>=0.2.0
+langchain-classic>=1.0.0
 langchain-openai>=0.1.0
 langchain-huggingface>=0.0.3
 langchain-text-splitters>=0.2.0
 langgraph>=0.1.0
 python-dotenv>=1.0.0
 
-# Embeddings + Vector Store
+# ── Embeddings + Vector Store ───────────────────────────────────────────────
 sentence-transformers>=2.7.0
 faiss-cpu>=1.8.0
 pgvector>=0.2.5
 psycopg[binary]>=3.1.18
 
-# ML / DL (Transfer Learning)
-transformers>=4.40.0
-torch>=2.0.0                   # or torch-cpu for smaller install
+# ── Reranking ───────────────────────────────────────────────────────────────
+cohere>=4.0.0
 
-# NLP
+# ── ML / DL ─────────────────────────────────────────────────────────────────
+transformers>=4.40.0
+torch>=2.0.0
+scikit-learn>=1.4.0
+numpy>=1.26.0
+umap-learn>=0.5.6
+
+# ── NLP ─────────────────────────────────────────────────────────────────────
 nltk>=3.8.1
 spacy>=3.7.0
 rank-bm25>=0.2.2
-# After install run: python -m spacy download en_core_web_sm
 
-# Scraping
+# ── Scraping ────────────────────────────────────────────────────────────────
 requests>=2.31.0
 beautifulsoup4>=4.12.0
 
-# Data
+# ── Data ────────────────────────────────────────────────────────────────────
 pandas>=2.0.0
-openpyxl>=3.1.0               # for reading/writing .xlsx
+openpyxl>=3.1.0
+datasets>=2.14.0
 
-# API
+# ── API ─────────────────────────────────────────────────────────────────────
 fastapi>=0.111.0
 uvicorn>=0.29.0
 pydantic>=2.0.0
+python-multipart>=0.0.9
 
-# UI
+# ── UI ──────────────────────────────────────────────────────────────────────
 streamlit>=1.35.0
 plotly>=5.0.0
 matplotlib>=3.8.0
 seaborn>=0.13.0
-umap-learn>=0.5.6
-scikit-learn>=1.4.0
 
-# Hugging Face Datasets
-datasets>=2.14.0
+# ── Database ────────────────────────────────────────────────────────────────
+psycopg2-binary>=2.9.0
+
+# ── Voice ───────────────────────────────────────────────────────────────────
+openai>=1.0.0
+gtts>=2.5.0
+SpeechRecognition>=3.10.0
+pyaudio>=0.2.13
+pygame>=2.5.0
+pygame-ce>=2.5.0
+elevenlabs>=0.2.0

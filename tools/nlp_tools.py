@@ -161,7 +161,7 @@ def tech_stack_extractor_tool(text:str) -> Dict[str, Any]:
             categories["Other"].append(tech)
 
 
-    categories = {k:sorted(v) for k, v in categories.items() if v}
+    categories = {k: sorted(v) for k, v in categories.items()}
 
     return {
         "technologies_found":found,
@@ -269,9 +269,9 @@ def topic_classifier_tool(text:str)-> Dict[str, Any]:
     text_lower = text.lower()
     scores = {t: sum(text_lower.count(k) for k in kws)
               for t, kws in TOPIC_KEYWORDS.items()}
-    scores = {t:s for t, s in scores.items() if s>=2}
-    if not scores:
-        return {'primary_topic':'General','scores':{}}
+    
+    if sum(scores.values()) == 0:
+        return {'primary_topic':'General','scores': scores, "is_multi_domain": False}
 
     sorted_scores = dict(sorted(scores.items(), key = lambda x: x[1], reverse = True))
     keys = list(sorted_scores.keys())
@@ -333,9 +333,12 @@ def project_summary_tool(text:str) -> Dict[str,str]:
 
 @tool
 def word_count_tool(text:str) -> Dict[str, int]:
-    """Clean word count — stopwords and punctuation removed."""
-
-    return {"word_count":len(_clean_tokens(text))}
+    """Clean word count — stopwords and punctuation removed, plus total word count."""
+    words = [w for w in word_tokenize(text) if w.isalpha()]
+    return {
+        "word_count": len(_clean_tokens(text)),
+        "total_word_count": len(words)
+    }
 
 @tool
 def personal_pronouns_tool(text:str) -> Dict[str, int]:
@@ -397,13 +400,13 @@ def get_article_cluster_tool(url_id:str) -> Dict[str, Any]:
     if not data:
         return {"error":"clusters not built yet."}
     url_ids = data["kmeans"]["url_ids"]
-    label_ids = data["kmeans"]["label_ids"]
+    label_ids = data["kmeans"]["labels"]
 
     if url_id not in url_ids:
         return {"error":f"{url_id} not found"}
     idx = url_ids.index(url_id)
     cluster_id = label_ids[idx]
-    peers = data["kmeans"]["peers"].get(f"{cluster_id}",[])
+    peers = data["kmeans"]["clusters"].get(f"cluster_{cluster_id}", [])
     return {
         "url_id":url_id,
         "cluster_id":cluster_id,
@@ -464,10 +467,7 @@ def analyse_article(text:str) -> Dict[str, Any]:
         **personal_pronouns_tool.run(text),
         **syllable_per_word_tool.run(text),
         **avg_word_len_tool.run(text),
-        **named_entities_tools.run(text),
-        **get_article_cluster_tool(text),
-        **find_similar_article_tool(text)
-
+        **named_entities_tools.run(text)
     }
 
 

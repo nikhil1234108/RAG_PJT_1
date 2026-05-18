@@ -1,105 +1,121 @@
-# Advanced Agentic RAG Pipeline
+# Advanced Agentic RAG Pipeline with Voice & NLP Analytics
 
 ## Overview
-This project implements an intelligent, agent-based Retrieval-Augmented Generation (RAG) pipeline built using **LangGraph** and **LangChain**. It analyzes a corpus of consulting projects, retrieves highly relevant context using a hybrid retrieval strategy (Similarity + BM25 Ensemble), and synthesizes analytical answers using Large Language Models (such as Llama-3.1-8B-Instruct or Mistral).
-
-*Note: Due to time constraints, the user interface currently operates as a local script/CLI, and some originally planned features (such as a full chatbot UI and cloud/virtual database integrations) have been deferred to future iterations.*
+This project implements an intelligent, agent-based Retrieval-Augmented Generation (RAG) pipeline backed by a **FastAPI** server. It analyzes a corpus of consulting projects, retrieves highly relevant context using a hybrid retrieval strategy, synthesizes analytical answers using Large Language Models, and maintains multi-turn conversation memory backed by PostgreSQL. The system also features a complete voice integration (STT & TTS) for conversational interactions and dedicated NLP endpoints for deep document analysis.
 
 ## Architecture & Core Features
-* **Graph-Based Agent Routing:** Uses LangGraph to intelligently route user queries into different execution paths (`rag`, `analyse`, `compare`) based on the semantic intent of the query.
-* **Hybrid Retrieval:** Employs an `EnsembleRetriever` combining dense vector search (FAISS/PGVector) with sparse keyword search (`rank_bm25`) for robust and highly accurate context retrieval.
-* **K-Means Clustering & Filtering:** Documents are pre-clustered. The query is dynamically routed to the nearest document cluster to narrow down the search space and improve accuracy.
-* **Advanced NLP Analysis Tools:** Custom tools designed to analyze documents for:
-  * Tech Stack Extraction
-  * Project Summary & Problem Breakdown
-  * Readability & FOG Index Analysis
-  * Complexity Classification
-  * Topic/Domain Classification
-* **State Checkpointing:** Persistent graph state is managed via PostgreSQL (`PostgresSaver`), with an automatic fallback mechanism to an in-memory checkpointer (`MemorySaver`) if the database is unavailable.
+
+### 1. API & Backend (FastAPI)
+- Exposes robust REST endpoints for creating sessions (`/chat/session`), interacting with the AI (`/chat/message`), and running NLP metrics on specific articles (`/articles/{url_id}/metrics`).
+- Fully supports cross-origin resource sharing (CORS) for front-end integration.
+
+### 2. Conversational Memory & State
+- **Two-Layer Memory System**:
+  - **Long-term (PostgreSQL)**: Persists full conversation history across multiple turns and page reloads, keyed by unique `session_id`.
+  - **Short-term (LangChain)**: Buffers recent messages and injects a dynamic summary of older context into the system prompt to maintain relevance without exceeding token limits.
+
+### 3. Voice Integration (STT & TTS)
+- Built-in Speech-to-Text and Text-to-Speech handlers in the `voice/` directory.
+- A dedicated "Voice Mode" flag alters the LLM's system prompt to produce concise, conversational responses devoid of markdown formatting for seamless audio playback.
+
+### 4. Hybrid Retrieval & Clustering
+- **Ensemble Retrieval**: Blends dense vector search (FAISS) with sparse keyword search (BM25) for high accuracy.
+- **Dynamic Clustering**: Pre-clusters documents (K-Means) and routes queries to the nearest document cluster to drastically reduce the search space and improve precision.
+
+### 5. Advanced NLP Analysis Tools
+Custom tools designed to analyze documents post-retrieval via the `/metrics` API:
+- Tech Stack Extraction (spaCy NER + rules)
+- Project Summary & Problem Breakdown
+- Readability & FOG Index Analysis
+- Complexity & Topic Classification
+- Named Entity Recognition
+
+---
 
 ## System Architecture
 
 ```mermaid
 graph TD
-    User([User Query]) --> Router
-    Router[Intent Router] --> ClusterRouter[Cluster Router]
+    Client([Client App / Postman])
     
-    ClusterRouter -->|Route: rag / both| RAG[RAG Node]
-    ClusterRouter -->|Route: analyse| Analyse[Analyse Node]
-    ClusterRouter -->|Route: compare| Compare[Compare Node]
-    
-    RAG -->|Route: both| Analyse
-    RAG -->|Route: rag| Synthesis[Synthesis Node]
-    
-    subgraph NLP_Tools[NLP Tools]
-        Tech[Tech Stack Extractor]
-        Summary[Project Summary Tool]
-        Complexity[Complexity Classifier]
-        Topic[Topic Classifier]
-        Readability[Readability Tool]
+    subgraph FastAPI Backend
+        SessionAPI[/chat/session/]
+        ChatAPI[/chat/message/]
+        MetricsAPI[/articles/url_id/metrics/]
     end
     
-    Analyse -.-> Tech
-    Analyse -.-> Summary
-    Analyse -.-> Complexity
-    Analyse -.-> Topic
-    Analyse -.-> Readability
+    Client --> SessionAPI
+    Client --> ChatAPI
+    Client --> MetricsAPI
     
-    Compare -.-> Tech
-    Compare -.-> Complexity
-    Compare -.-> Topic
-    
-    Analyse --> Synthesis
-    Compare --> Synthesis
-    
-    Synthesis --> Output([Final Answer])
-    
-    subgraph Data Layer
-        FAISS[(FAISS / PGVector)]
-        BM25[(rank_bm25)]
+    subgraph Chatbot Engine
+        Agent[Chat Agent]
+        PromptBuilder[Dynamic Prompt Builder]
+        MemManager[Memory Manager]
     end
+    
+    ChatAPI --> Agent
+    Agent --> MemManager
+    Agent --> PromptBuilder
+    
+    subgraph Memory Layer
+        Postgres[(PostgreSQL)]
+        LCBuffer[LangChain Summary Buffer]
+    end
+    
+    MemManager <--> Postgres
+    MemManager <--> LCBuffer
     
     subgraph Retrieval Pipeline
+        ClusterFilter[Cluster Filter]
         Ensemble[Ensemble Retriever]
-        FAISS -.-> Ensemble
-        BM25 -.-> Ensemble
+        FAISS[(FAISS)]
+        BM25[(BM25)]
     end
     
-    Ensemble -.-> RAG
+    Agent --> ClusterFilter
+    ClusterFilter --> Ensemble
+    FAISS -.-> Ensemble
+    BM25 -.-> Ensemble
     
-    subgraph State Management
-        DB[(PostgreSQL / Memory)]
+    subgraph Voice & NLP
+        STT[Speech-to-Text]
+        TTS[Text-to-Speech]
+        NLPTools[NLP Analytics Suite]
     end
-    Router -.-> DB
-    Synthesis -.-> DB
+    
+    Client -.-> STT
+    Agent -.-> TTS
+    MetricsAPI --> NLPTools
+    
+    PromptBuilder --> LLM((Large Language Model))
+    LLM --> Agent
 ```
 
-## Deep Dive into Project Structure & Files
+## Deep Dive into Project Structure
 
-The project is modularized into several key components to cleanly separate concerns.
+### 1. `API/` (Backend Server)
+- **`main.py`**: The FastAPI entry point. Defines all REST endpoints, initializes the PostgreSQL database tables, and orchestrates requests between the Chat Engine and the NLP tools.
 
-### 1. `graph/` (State Graph & Routing)
-- **`graph.py`**: The central orchestrator. It defines the LangGraph `AgentState` and creates the main workflow `StateGraph`. It contains multiple nodes (`router`, `cluster_router`, `rag`, `analyse`, `compare`, `synthesis`) that guide the flow of execution based on user intent. This is also where the `PostgresSaver` (or `MemorySaver` fallback) checkpointer is configured to persist conversation state.
+### 2. `chatbot/` (Agent & Orchestration)
+- **`chat_agent.py`**: The core stateful engine. It validates sessions, retrieves context, injects memory, and streams outputs from the LLM.
+- **`session.py`**: Manages PostgreSQL database connections to persist conversation histories.
+- **`memory.py`**: Bridges the gap between raw PostgreSQL logs and LangChain's conversational buffer memory.
+- **`prompt.py`**: Defines the production-grade system prompt architecture, applying dynamic constraints (like Voice Mode) based on the session state.
 
-### 2. `chains/` (Retrieval & LLM Chains)
-- **`rag_chain.py`**: Configures the foundational LangChain `RetrievalQA` pipeline. It sets up the system prompts, instantiates the Large Language Model (Llama-3.1 via HuggingFace or Mistral via Ollama), and creates the `EnsembleRetriever` to blend dense vector retrieval (FAISS/PGVector) and sparse keyword retrieval (`rank_bm25`).
+### 3. `voice/` (Audio Processing)
+- **`stt.py` & `tts.py`**: Handle speech-to-text transcription and text-to-speech synthesis to allow fully conversational voice interfaces.
+- **`voice_bot.py`**: A specialized bot handler for voice-first interactions.
 
-### 3. `vectorstore/` (Storage & Clustering)
-- **`vector_store.py`**: Handles building, saving, and loading the vector databases. It supports both local FAISS indexes and PGVector. It also contains the `ClusterFilteredRetriever`, which dynamically filters semantic searches to only look within specific document clusters.
-- **`clustering.py`**: Contains the logic to apply K-Means clustering algorithms over the embedded article vectors. Clustering helps drastically reduce the search space and improve retrieval precision.
-- **`visualize_umap.py`**: A utility script used to visualize the high-dimensional document clusters in a 2D space using UMAP (Uniform Manifold Approximation and Projection).
+### 4. `tools/` (NLP & Analytics)
+- **`nlp_tools.py`**: Houses all document analysis algorithms (FOG index, syllable counters, entity extraction, etc.). 
 
-### 4. `tools/` (Document Analysis)
-- **`nlp_tools.py`**: Contains custom natural language processing tools built to analyze documents post-retrieval. It provides functionality to calculate FOG indices (readability), classify project complexity, extract technology stacks, determine domains/topics, and summarize project problems and outcomes.
+### 5. `vectorstore/` & `chains/` (Retrieval)
+- **`vector_store.py`**: Builds and manages the FAISS vector database.
+- **`clustering.py`**: K-Means logic for document grouping.
+- **`rag_chain.py`**: Binds the LLM (HuggingFace/Ollama) to the Ensemble Retriever.
 
-### 5. `ingest/` (Data Loading)
-- **`scraper.py`**: Houses the logic used to scrape or gather the original consulting project documents and articles.
-- **`chunker.py`**: Responsible for loading the raw documents and intelligently chunking the text into smaller, overlapping segments suitable for vector embedding and retrieval.
-
-### 6. Root Configuration
-- **`main.py`**: An alternative entry point.
-- **`.env` & `.env.example`**: Store critical environment variables such as `DATABASE_URL` (for Postgres checkpointer) and API keys (like `HF_TOKEN`).
-- **`requirements.txt`**: Lists all necessary Python dependencies (`langgraph`, `langchain`, `psycopg`, `faiss-cpu`, `rank_bm25`, etc.).
+---
 
 ## Setup & Installation
 
@@ -107,26 +123,27 @@ The project is modularized into several key components to cleanly separate conce
    Ensure you have a Python virtual environment activated, then install the required packages:
    ```bash
    pip install -r requirements.txt
-   pip install rank_bm25
    ```
 
 2. **Environment Variables:**
    Create a `.env` file in the root directory and configure the following variables:
    ```env
    HF_TOKEN=your_huggingface_token
-   VECTOR_STORE=faiss # or postgres
    DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@localhost:5432/rag_db
    ```
-   *(Ensure you replace `YOUR_PASSWORD` with your actual local PostgreSQL password. If the connection fails, the script will gracefully fall back to an in-memory saver).*
 
-3. **Run the Agent:**
-   Execute the main graph script to run a query through the pipeline:
+3. **Run the FastAPI Server:**
+   Start the application using Uvicorn:
    ```bash
-   python graph/graph.py
+   uvicorn API.main:app --reload --port 8000
    ```
 
-## Limitations & Deferred Plans (Future Scope)
-Due to strict time constraints during development, the following planned features were scoped out and deferred for future development:
-1. **Chatbot Interface:** The system currently runs as a programmatic script without a conversational web user interface (like Streamlit, Gradio, or a React frontend).
-2. **Virtual / Cloud Databases:** The project relies entirely on a local PostgreSQL instance and local FAISS indexes rather than managed cloud vector databases (e.g., Pinecone, Weaviate, or managed cloud SQL).
-3. **API Deployment:** Future plans include wrapping the LangGraph agent in a FastAPI server to serve it as an independent backend microservice.
+4. **Interact via API:**
+   - Create a session: `POST http://localhost:8000/chat/session?mode=text`
+   - Send a message: `POST http://localhost:8000/chat/message`
+     ```json
+     {
+       "session_id": "<your-session-id>",
+       "message": "What technologies were used in the latest cloud project?"
+     }
+     ```
