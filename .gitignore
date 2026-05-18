@@ -1,5 +1,10 @@
-.env
-.env.txt
-__pycache__/
+venv/
 .venv/
-myenv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.pytest_cache/
+.vscode/
+data/
