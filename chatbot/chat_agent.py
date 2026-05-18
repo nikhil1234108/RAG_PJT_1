@@ -152,7 +152,7 @@ class chatengine:
     def _extract_source_ids(self, context: str) -> list:
         """Extracts article IDs from retrieved context string."""
         import re
-        return re.findall(r'\[(bcl_\w+)\]', context)
+        return list(set(re.findall(r'\[([a-zA-Z0-9_]+)\]:', context)))
 
     def get_history(self, session_id: str, last_n: int = 20) -> list:
         """Returns conversation history for a session."""
